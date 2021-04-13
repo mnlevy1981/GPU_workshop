@@ -8,8 +8,8 @@ __global__ void SharedMatmul(const float *A, const float *B, float *C, const int
   int col = blockIdx.x * blockDim.x + threadIdx.x;
 
   // Statically allocate a tile of shared memory. Tile size should equal block size.
-  // ??? float s_A[???];
-  // ??? float s_B[???];
+  __shared__ float s_A[SHMEM_SIZE];
+  __shared__ float s_B[SHMEM_SIZE];
 
   // Declare a temporary variable to accumulate calculated elements
   // for the C matrix
@@ -18,26 +18,28 @@ __global__ void SharedMatmul(const float *A, const float *B, float *C, const int
   // Sweep tiles of size blockDim.x across matrices A and B.
   for (int i = 0; i < p; i += blockDim.x) {
     // Load in elements from A and B into shared memory into each tile.
-    // int shared_index = ???
+    int shared_index = threadIdx.y * blockDim.x + threadIdx.x;
 
     // For matrix A, keep the row invariant and iterate through columns.
-    // s_a[shared_index] = A[row * ??? + ??? + ???];
+    s_A[shared_index] = A[row * p + i + threadIdx.x];
 
     // For matrix B, keep the column invariant and iterate through rows.
-    // s_B[shared_index] = B[??? * ??? + ??? * ??? + col];
+    s_B[shared_index] = B[i * q + threadIdx.y * q + col];
 
     // Wait for tiles to be loaded in before doing computation.
+    __syncthreads();
 
     // Do matrix multiplication on the small matrix within the current tile.
-    // for (int j = 0; j < ???; j++) {
-    //   sum += s_A[??? * ??? + j] * s_B[j * ??? + ???];
-    // }
- 
+    for (int j = 0; j < blockDim.x; j++) {
+      sum += s_A[threadIdx.y * blockDim.x + j] * s_B[j * blockDim.x + threadIdx.x];
+    }
+
     // Wait for all threads to finish using current tiles before loading in new ones.
+    __syncthreads();
   }
 
   // Write resulting calculations as elements of the C matrix.
-  // C[row * q + col] = sum;
+  C[row * q + col] = sum;
 }
 
 __host__ void gpuMatmul(const float *h_A, const float *h_B, float *gpu_C, const int m, const int p, const int q)
