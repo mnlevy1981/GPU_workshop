@@ -1,12 +1,12 @@
 #!/bin/bash -l
 # Batch directives
 #PBS -N matmul
-#PBS -A NTDD0002
+#PBS -A P93300606
 #PBS -q casper
 #PBS -l select=1:ncpus=1:mem=50GB:ngpus=1
 #PBS -l gpu_type=v100
 #PBS -l walltime=00:05:00
-##PBS --reservation=TDD_4xV100 
+##PBS --reservation=TDD_4xV100
 #PBS -e matmul.err
 #PBS -o matmul.log
 

@@ -1,0 +1,4 @@
+Getting proper node on casper:
+
+$ execcasper --ngpus=1 -l gpu_type=v100
+

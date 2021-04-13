@@ -3,9 +3,21 @@
 __global__ void mmul( float *A, float *B, float *C, int m, int p, int q)
 {
    //Calculate the row and column values based on the block Id, block dimensions and the thread Id.
- 
-   //Multiply Matrices A and B, store results in Matrix C
+  // mmul<<<grid,block>>>(d_A, d_B, d_C, m, p, q);
+  float temp = 0.0;
+  int row = blockIdx.y * blockDim.y + threadIdx.y;
+  int col = blockIdx.x * blockDim.x + threadIdx.x;
 
+  //Multiply Matrices A and B, store results in Matrix C
+  if (row < m && col < q)
+  {
+    temp = 0.0;
+    for (int k = 0; k < p; k++)
+    {
+      temp += A[row*p+k] * B[k*q+col];
+    }
+    C[row*q+col] = temp;
+  }
 }
 
 
@@ -16,34 +28,37 @@ __host__ void gpuMult(float *h_A, float *h_B, float *gpu_C, const int m, const i
   float *d_A, *d_B, *d_C;
 
   //Allocate device memory
-  //cudaMalloc(&d_A, ???*???*sizeof(???));
-  //cudaMalloc(&d_B, ???*???*sizeof(???));
-  //cudaMalloc(&d_C, ???*???*sizeof(???));
+  cudaMalloc(&d_A, m*p*sizeof(float));
+  cudaMalloc(&d_B, p*q*sizeof(float));
+  cudaMalloc(&d_C, m*q*sizeof(float));
   cudaCheckErrors("cudaMalloc failure");
 
   // Copy host matrices A and B to the device using cudaMemcpy
-  //cudaMemcpy(dest, src, ???*???*sizeof(???), cudaMemcpyHostToDevice);
-  //cudaMemcpy(dest, src, ???*???*sizeof(???), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_A, h_A, m*p*sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_B, h_B, p*q*sizeof(float), cudaMemcpyHostToDevice);
   cudaCheckErrors("cudaMemcpy H2D failture");
-  
+
   // Set block dimensions here
   // Remember: the maximum number of total threads is 1024.
   unsigned int block_size = BLOCK_SIZE; // from pch.h is 32
   dim3 block(block_size, block_size);
   //calculate grid dimensions here
-  //unsigned int grid_rows = ???; 
-  //unsigned int grid_cols = ???; 
+  unsigned int grid_rows = (m + block_size - 1) / block_size;
+  unsigned int grid_cols = (q + block_size - 1) / block_size;
   dim3 grid(grid_cols, grid_rows);
- 
+
   printf("Kernel launch dimensions: \n");
   printf("\tGrid size  : {%d, %d, %d} blocks.\n",grid.x, grid.y, grid.z);
   printf("\tBlock size : {%d, %d, %d} threads.\n",block.x, block.y, block.z);
 
   //Launch matrix multiplication kernel (the global function)
+  mmul<<<grid,block>>>(d_A, d_B, d_C, m, p, q);
 
-  // block CPU until GPU returns data using cudaDeviceSynchronize 
+  // block CPU until GPU returns data using cudaDeviceSynchronize
+  cudaDeviceSynchronize();
 
-  // Transfer results from device to host 
+  // Transfer results from device to host
+  cudaMemcpy(gpu_C, d_C, m*q*sizeof(float), cudaMemcpyDeviceToHost);
 
   cudaCheckErrors("Kernel execution failure or cudaMemcpy H2D failure");
 
