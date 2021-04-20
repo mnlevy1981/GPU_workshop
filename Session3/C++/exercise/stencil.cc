@@ -11,6 +11,7 @@
 #include "pch.h"
 
 // TODO: Include openacc.h for the acc_* functions
+#include <openacc.h>
 
 #define MAX(X,Y) (((X) > (Y)) ? (X) : (Y))
 
@@ -53,7 +54,7 @@ LJ_return LaplaceJacobi_MPIACC(float *M, const int ny, const int nx,
     // (e.g. requestR are the requests for receiving and sending to its right neighbor)
     MPI_Request requestT[2], requestB[2];
     // The (optional) tags for the MPI Isend/Irecv.
-    // Tags are relative to the sender (e.g. a process sending data to its 
+    // Tags are relative to the sender (e.g. a process sending data to its
     // left neighbor uses tag_l in the Isend and the neighbor will use tag_l in its Irecv)
     int tag_t = DIR_TOP, tag_b=DIR_BOTTOM;
 
@@ -67,11 +68,15 @@ LJ_return LaplaceJacobi_MPIACC(float *M, const int ny, const int nx,
 
 // TODO: Create an unstructured data region copyin M and M_new
 // as well as create the send_* and recv_* variables
+#pragma acc enter data copyin(M[0:matsz], M_new[0:matsz])
+#pragma acc enter data create(send_top[0:buffsz_x], recv_top[0:buffsz_x])
+#pragma acc enter data create(send_bot[0:buffsz_x], recv_bot[0:buffsz_x])
 
 
 
 // TODO: Parallelize this copy loop
     // Make M_new a copy of M, this helps for the last loop inside the do-while
+#pragma acc parallel loop collapse(2) present(M[0:matsz], M_new[0:matsz])
     for(int i=0; i<ny; i++){
         for(int j=0; j<nx; j++){
             M_new[i*nx+j] = M[i*nx+j];
@@ -84,6 +89,7 @@ LJ_return LaplaceJacobi_MPIACC(float *M, const int ny, const int nx,
 
         // Update M_new with M
 // TODO: Parallelize the update loop
+#pragma acc parallel loop collapse(2) present(M[0:matsz], M_new[0:matsz])
         for(int i=1; i<ny-1; i++){
             for(int j=1; j<nx-1; j++){
                 M_new[i*nx+j] = 0.25f *(M[(i-1)*nx+j]+M[i*nx+j+1]+ \
@@ -95,20 +101,24 @@ LJ_return LaplaceJacobi_MPIACC(float *M, const int ny, const int nx,
         if(HasNeighbor(neighbors, DIR_TOP)){
             // Copy the values from the top row of the interior
 // TODO: Parallelize this loop copying into the send buffer
+#pragma acc parallel loop present(send_top[0:buffsz_x], M_new[0:matsz])
             for(int j=0; j<nx; j++){
                 send_top[j] = M_new[1*nx+j];
             }
 // TODO: Add host_data construct
+#pragma acc host_data use_device(recv_top, send_top)
             MPI_Irecv(recv_top, buffsz_x, MPI_FLOAT, neighbors[DIR_TOP], tag_b, MPI_COMM_WORLD, requestT);
             MPI_Isend(send_top, buffsz_x, MPI_FLOAT, neighbors[DIR_TOP], tag_t, MPI_COMM_WORLD, requestT+1);
         }
         if(HasNeighbor(neighbors, DIR_BOTTOM)){
             // Copy the values from the bottom row of the interior
 // TODO: Parallelize this loop copying into the send buffer
+#pragma acc parallel loop default(present)
             for(int j=0; j<nx; j++){
                 send_bot[j] = M_new[(ny-2)*nx+j];
             }
 // TODO: Add host_data construct
+#pragma acc host_data use_device(recv_bot, send_bot)
             MPI_Irecv(recv_bot, buffsz_x, MPI_FLOAT, neighbors[DIR_BOTTOM], tag_t, MPI_COMM_WORLD, requestB);
             MPI_Isend(send_bot, buffsz_x, MPI_FLOAT, neighbors[DIR_BOTTOM], tag_b, MPI_COMM_WORLD, requestB+1);
         }
@@ -117,6 +127,7 @@ LJ_return LaplaceJacobi_MPIACC(float *M, const int ny, const int nx,
         if(HasNeighbor(neighbors, DIR_TOP)){ // Fill the values in the top row
             MPI_Waitall(2, requestT, status);
 // TODO: Parallelize this loop copying into the border area
+#pragma acc parallel loop present(recv_top[0:buffsz_x], M_new[0:matsz])
             for(int j=1; j<nx-1; j++){
                 M_new[j] = recv_top[j-1];
             }
@@ -124,14 +135,16 @@ LJ_return LaplaceJacobi_MPIACC(float *M, const int ny, const int nx,
         if(HasNeighbor(neighbors, DIR_BOTTOM)){
             MPI_Waitall(2, requestB, status);
 // TODO: Parallelize this loop copying into the border area
+#pragma acc parallel loop present(recv_bot[0:buffsz_x], M_new[0:matsz])
             for(int j=1; j<nx-1; j++){ // Fill the values in the bottom row
-                M_new[(ny-1)*nx+j] = recv_bot[j-1]; 
+                M_new[(ny-1)*nx+j] = recv_bot[j-1];
             }
         }
         // End the halo exchange section
 
         // Check for convergence while copying values into M
 // TODO: Parallelize the convergence loop, apply a max reduction
+#pragma acc parallel loop collapse(2) present(M[0:matsz], M_new[0:matsz]) reduction(max:maxdiff)
         for(int i=0; i<ny; i++){
             for(int j=0; j<nx; j++){
                 maxdiff = MAX(fabs(M_new[i*nx+j] - M[i*nx+j]), maxdiff);
@@ -143,6 +156,8 @@ LJ_return LaplaceJacobi_MPIACC(float *M, const int ny, const int nx,
     } while(g_maxdiff > JACOBI_TOLERANCE && itr < JACOBI_MAX_ITR);
 
 // TODO: Add pragmas to copyout data and delete other arrays for unstructured data region
+#pragma acc exit data copyout(M[0:matsz]) delete(M_new[0:matsz])
+#pragma acc exit data delete(send_top[0:buffsz_x], recv_top[0:buffsz_x], send_bot[0:buffsz_x], recv_bot[0:buffsz_x])
 
     // Free malloc'ed memory
     free(M_new);

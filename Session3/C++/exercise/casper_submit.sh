@@ -11,7 +11,7 @@
 # Load the necessary modules (software)
 module purge
 module load ncarenv/1.2
-module load nvhpc/20.11 
+module load nvhpc/20.11
 module load cuda/11.0.3
 module load openmpi/4.1.0
 module list
@@ -24,7 +24,7 @@ echo -e "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
 
 #export NV_ACC_TIME=1
 
-export UCX_TLS=rc,sm,cuda_copy,cuda_ipc
+export UCX_TLS=rc,sm,cuda_copy,cuda_ipc,gdr_copy
 export OMPI_MCA_pml=ucx
 export OMPI_MCA_btl=self,vader,tcp,smcuda
 export UCX_MEMTYPE_CACHE=n
